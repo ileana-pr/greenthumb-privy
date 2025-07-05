@@ -9,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [react()],
   root: 'src/frontend',
+  envDir: path.resolve(__dirname, '.'),
   build: {
     outDir: '../../dist/frontend',
     emptyOutDir: true,

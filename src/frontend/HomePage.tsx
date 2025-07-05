@@ -1,10 +1,15 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageCircle, Globe, Search, Star, Clock } from 'lucide-react';
+import { MessageCircle, Globe, Search, Star, Clock, Wallet } from 'lucide-react';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 
 const HomePage: React.FC = () => {
   console.log('🏠 HomePage component is loading!');
   const navigate = useNavigate();
+
+  // privy wallet hooks
+  const { login, logout, authenticated, user } = usePrivy();
+  const { wallets } = useWallets();
 
   const handleChatClick = () => {
     console.log('navigating to chat interface...');
@@ -13,6 +18,14 @@ const HomePage: React.FC = () => {
 
   const handleVirtualWorldClick = () => {
     alert('virtual world feature coming soon! 🌱✨');
+  };
+
+  const handleWalletClick = () => {
+    if (authenticated) {
+      logout();
+    } else {
+      login();
+    }
   };
 
   const handleButtonMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -70,7 +83,46 @@ const HomePage: React.FC = () => {
         </div>
 
         {/* title section */}
-        <div style={{ marginBottom: '3rem' }}>
+        <div style={{ marginBottom: '3rem', position: 'relative' }}>
+          {/* wallet button in top-right corner */}
+          <div style={{ position: 'absolute', top: '-2rem', right: '0' }}>
+            <button
+              onClick={handleWalletClick}
+              style={{
+                background: authenticated ? 'linear-gradient(to right, #059669, #047857)' : 'transparent',
+                color: authenticated ? 'white' : '#059669',
+                border: authenticated ? 'none' : '1px solid #10b981',
+                padding: '0.5rem 1rem',
+                borderRadius: '0.5rem',
+                fontSize: '0.875rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                transition: 'all 0.2s ease',
+                boxShadow: authenticated ? '0 2px 8px rgba(0, 0, 0, 0.1)' : 'none'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = authenticated ? '0 2px 8px rgba(0, 0, 0, 0.1)' : 'none';
+              }}
+            >
+              <Wallet size={16} />
+              {authenticated ? 
+                (wallets.length > 0 ? 
+                  `${wallets[0].address.slice(0, 6)}...${wallets[0].address.slice(-4)}` : 
+                  'Connected'
+                ) : 
+                'Connect Wallet'
+              }
+            </button>
+          </div>
+          
           <h1 style={{
             fontSize: 'clamp(3rem, 8vw, 6rem)',
             fontWeight: '900',
