@@ -17,7 +17,22 @@ const App: React.FC = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <PrivyProvider appId={import.meta.env.VITE_PRIVY_APP_ID!}>
+      <PrivyProvider 
+        appId={import.meta.env.VITE_PRIVY_APP_ID!}
+        config={{
+          loginMethods: ['email', 'wallet', 'google'],
+          appearance: {
+            theme: 'light',
+            accentColor: '#10b981'
+          },
+          supportedChains: [], // disable solana warnings
+          externalWallets: {
+            coinbaseWallet: {
+              connectionOptions: 'all'
+            }
+          }
+        }}
+      >
         <Router>
           <Routes>
             <Route path="/" element={<HomePage />} />

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Leaf, Bot, User, Sprout, TreePine, Flower } from 'lucide-react';
+import { Send, Leaf, Bot, User, Sprout, TreePine, Flower, Wallet } from 'lucide-react';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import type { UUID } from '@elizaos/core';
 
 // Remove or simplify this:
@@ -390,6 +391,10 @@ class GreenthumbAPI {
 const GreenthumbApp: React.FC = () => {
   console.log(`🏗️ GreenThumb: Component initializing - NO socket created yet`);
   
+  // privy wallet hooks
+  const { login, logout, authenticated, user } = usePrivy();
+  const { wallets } = useWallets();
+  
   const [messages, setMessages] = useState<Message[]>([
     {
       id: uuidv4(),
@@ -648,25 +653,58 @@ const GreenthumbApp: React.FC = () => {
               </p>
             </div>
             
-            {/* Connection status */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div 
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  backgroundColor: isConnected ? '#10b981' : '#ef4444',
-                }}
-              />
-              <span 
-                style={{
-                  fontSize: '14px',
-                  color: isConnected ? '#047857' : '#dc2626',
-                  fontWeight: '500',
-                }}
-              >
-                {isConnected ? 'Connected' : 'Disconnected'}
-              </span>
+            {/* Connection status and wallet */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              {/* Connection status */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div 
+                  style={{
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: isConnected ? '#10b981' : '#ef4444',
+                  }}
+                />
+                <span 
+                  style={{
+                    fontSize: '14px',
+                    color: isConnected ? '#047857' : '#dc2626',
+                    fontWeight: '500',
+                  }}
+                >
+                  {isConnected ? 'Connected' : 'Disconnected'}
+                </span>
+              </div>
+
+              {/* Wallet status */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={authenticated ? logout : login}
+                  style={{
+                    background: authenticated ? 'linear-gradient(135deg, #10b981, #059669)' : 'transparent',
+                    color: authenticated ? 'white' : '#059669',
+                    border: authenticated ? 'none' : '1px solid #10b981',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <Wallet size={14} />
+                  {authenticated ? 
+                    (wallets.length > 0 ? 
+                      `${wallets[0].address.slice(0, 6)}...${wallets[0].address.slice(-4)}` : 
+                      'Connected'
+                    ) : 
+                    'Connect'
+                  }
+                </button>
+              </div>
             </div>
           </div>
         </div>

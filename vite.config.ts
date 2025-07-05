@@ -10,6 +10,9 @@ export default defineConfig({
   plugins: [react()],
   root: 'src/frontend',
   envDir: path.resolve(__dirname, '.'),
+  define: {
+    global: 'globalThis',
+  },
   build: {
     outDir: '../../dist/frontend',
     emptyOutDir: true,
