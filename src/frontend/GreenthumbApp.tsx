@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Leaf, Bot, User, Sprout, TreePine, Flower, Wallet } from 'lucide-react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy, useWallets, useCreateWallet } from '@privy-io/react-auth';
 import type { UUID } from '@elizaos/core';
 
 // Remove or simplify this:
@@ -394,6 +394,65 @@ const GreenthumbApp: React.FC = () => {
   // privy wallet hooks
   const { login, logout, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
+  const { createWallet } = useCreateWallet();
+  
+  // prevent multiple wallet creation attempts
+  const [isCreatingWallet, setIsCreatingWallet] = React.useState(false);
+  const [hasAttemptedWalletCreation, setHasAttemptedWalletCreation] = React.useState(false);
+  
+  // debug: log wallet info
+  React.useEffect(() => {
+    console.log('🔍 Auth State Changed:', { 
+      authenticated, 
+      walletsCount: wallets.length,
+      isCreatingWallet,
+      hasAttemptedWalletCreation 
+    });
+    
+    if (authenticated) {
+      console.log('✅ User is authenticated');
+      console.log('User info:', user);
+      console.log('Linked accounts:', user?.linkedAccounts);
+      user?.linkedAccounts?.forEach((account, index) => {
+        console.log(`Account ${index + 1} (${account.type}):`, account);
+      });
+      
+      if (wallets.length > 0) {
+        console.log('🔍 Wallet Debug Info:');
+        console.log('Total wallets:', wallets.length);
+        wallets.forEach((wallet, index) => {
+          console.log(`Wallet ${index + 1}:`, {
+            address: wallet.address,
+            walletClientType: wallet.walletClientType,
+            connectorType: wallet.connectorType
+          });
+        });
+        // reset wallet creation state when wallets are found
+        setIsCreatingWallet(false);
+        setHasAttemptedWalletCreation(false);
+      } else if (!isCreatingWallet && !hasAttemptedWalletCreation) {
+        // only create wallet if not already creating and haven't attempted yet
+        console.log('⚠️ User is authenticated but has no wallets');
+        console.log('🔨 Creating embedded wallet...');
+        setIsCreatingWallet(true);
+        setHasAttemptedWalletCreation(true);
+        
+        createWallet().then(() => {
+          console.log('✅ Embedded wallet created successfully!');
+          setIsCreatingWallet(false);
+        }).catch(error => {
+          console.error('❌ Failed to create embedded wallet:', error);
+          setIsCreatingWallet(false);
+          // don't reset hasAttemptedWalletCreation on error to prevent retry loops
+        });
+      }
+    } else {
+      console.log('❌ User is not authenticated');
+      // reset state when user logs out
+      setIsCreatingWallet(false);
+      setHasAttemptedWalletCreation(false);
+    }
+  }, [authenticated, wallets, user, isCreatingWallet, hasAttemptedWalletCreation]);
   
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -694,11 +753,15 @@ const GreenthumbApp: React.FC = () => {
                     gap: '6px',
                     transition: 'all 0.2s ease',
                   }}
+                  title={authenticated && wallets.length > 0 ? 
+                    `${wallets[0].walletClientType} wallet: ${wallets[0].address}` : 
+                    undefined
+                  }
                 >
                   <Wallet size={14} />
                   {authenticated ? 
                     (wallets.length > 0 ? 
-                      `${wallets[0].address.slice(0, 6)}...${wallets[0].address.slice(-4)}` : 
+                      `${wallets[0].address.slice(0, 6)}...${wallets[0].address.slice(-4)} (${wallets[0].walletClientType})` : 
                       'Connected'
                     ) : 
                     'Connect'

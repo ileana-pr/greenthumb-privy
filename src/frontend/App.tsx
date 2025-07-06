@@ -20,16 +20,13 @@ const App: React.FC = () => {
       <PrivyProvider 
         appId={import.meta.env.VITE_PRIVY_APP_ID!}
         config={{
-          loginMethods: ['email', 'wallet', 'google'],
+          loginMethods: ['google', 'email', 'wallet'],
           appearance: {
             theme: 'light',
             accentColor: '#10b981'
           },
-          supportedChains: [], // disable solana warnings
-          externalWallets: {
-            coinbaseWallet: {
-              connectionOptions: 'all'
-            }
+          embeddedWallets: {
+            createOnLogin: 'users-without-wallets'
           }
         }}
       >
