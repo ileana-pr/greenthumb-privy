@@ -27,9 +27,38 @@ const App: React.FC = () => {
           },
           embeddedWallets: {
             createOnLogin: 'users-without-wallets'
+          },
+          defaultChain: {
+            id: 84532, // Base Sepolia testnet
+            name: 'Base Sepolia',
+            network: 'base-sepolia',
+            nativeCurrency: {
+              decimals: 18,
+              name: 'Ether',
+              symbol: 'ETH',
+            },
+            rpcUrls: {
+              default: {
+                http: ['https://sepolia.base.org'],
+              },
+              public: {
+                http: ['https://sepolia.base.org'],
+              },
+            },
+            blockExplorers: {
+              blockscout: {
+                name: 'Basescout',
+                url: 'https://base-sepolia.blockscout.com',
+              },
+              default: {
+                name: 'Basescan',
+                url: 'https://sepolia.basescan.org',
+              },
+            },
+            testnet: true,
           }
         }}
-      >
+        >
         <Router>
           <Routes>
             <Route path="/" element={<HomePage />} />

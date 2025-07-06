@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Leaf, Bot, User, Sprout, TreePine, Flower, Wallet } from 'lucide-react';
-import { usePrivy, useWallets, useCreateWallet } from '@privy-io/react-auth';
+import { Send, Leaf, Bot, User, Sprout, TreePine, Flower, Wallet, Heart, DollarSign } from 'lucide-react';
+import { usePrivy, useWallets, useCreateWallet, useFundWallet } from '@privy-io/react-auth';
 import type { UUID } from '@elizaos/core';
 
 // Remove or simplify this:
@@ -391,14 +391,70 @@ class GreenthumbAPI {
 const GreenthumbApp: React.FC = () => {
   console.log(`🏗️ GreenThumb: Component initializing - NO socket created yet`);
   
+  // add CSS animation for loading spinner
+  React.useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
+  // Helper function to render text with clickable links
+  const renderMessageText = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    
+    return parts.map((part, index) => {
+      if (urlRegex.test(part)) {
+        return (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              color: '#10b981',
+              textDecoration: 'underline',
+              fontWeight: '500',
+            }}
+          >
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+  
   // privy wallet hooks
   const { login, logout, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
   const { createWallet } = useCreateWallet();
+  const { fundWallet } = useFundWallet();
   
   // prevent multiple wallet creation attempts
   const [isCreatingWallet, setIsCreatingWallet] = React.useState(false);
   const [hasAttemptedWalletCreation, setHasAttemptedWalletCreation] = React.useState(false);
+  
+  // agent wallet for tips - configurable via environment variable
+  const AGENT_WALLET_ADDRESS = import.meta.env.VITE_AGENT_WALLET_ADDRESS || '0x742d35Cc6634C0532925a3b8D591D3D5e0cc3b1c'; // fallback for demo
+  
+  // USDC contract address (Base Sepolia testnet) - Required for stablecoin bounty!
+  const USDC_CONTRACT_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'; // Base Sepolia USDC
+  
+  // tipping state
+  const [showTipModal, setShowTipModal] = React.useState(false);
+  const [tipAmount, setTipAmount] = React.useState('1'); // USDC amounts (1 USDC = $1)
+  const [isSendingTip, setIsSendingTip] = React.useState(false);
+  const [userUSDCBalance, setUserUSDCBalance] = React.useState<string>('0');
+  const [userETHBalance, setUserETHBalance] = React.useState<string>('0');
   
   // debug: log wallet info
   React.useEffect(() => {
@@ -417,22 +473,25 @@ const GreenthumbApp: React.FC = () => {
         console.log(`Account ${index + 1} (${account.type}):`, account);
       });
       
-      if (wallets.length > 0) {
-        console.log('🔍 Wallet Debug Info:');
-        console.log('Total wallets:', wallets.length);
-        wallets.forEach((wallet, index) => {
-          console.log(`Wallet ${index + 1}:`, {
-            address: wallet.address,
-            walletClientType: wallet.walletClientType,
-            connectorType: wallet.connectorType
-          });
+      console.log('🔍 Wallet Debug Info:');
+      console.log('Total wallets:', wallets.length);
+      wallets.forEach((wallet, index) => {
+        console.log(`Wallet ${index + 1}:`, {
+          address: wallet.address,
+          walletClientType: wallet.walletClientType,
+          connectorType: wallet.connectorType
         });
-        // reset wallet creation state when wallets are found
+      });
+
+      const hasEmbeddedWallet = wallets.some(w => w.walletClientType === 'privy');
+      
+      if (hasEmbeddedWallet) {
+        // reset wallet creation state when embedded wallet is found
         setIsCreatingWallet(false);
         setHasAttemptedWalletCreation(false);
       } else if (!isCreatingWallet && !hasAttemptedWalletCreation) {
-        // only create wallet if not already creating and haven't attempted yet
-        console.log('⚠️ User is authenticated but has no wallets');
+        // only create embedded wallet if not already creating and haven't attempted yet
+        console.log('⚠️ User is authenticated but has no embedded wallet');
         console.log('🔨 Creating embedded wallet...');
         setIsCreatingWallet(true);
         setHasAttemptedWalletCreation(true);
@@ -576,6 +635,168 @@ const GreenthumbApp: React.FC = () => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    }
+  };
+
+  // ETH balance checking
+  const checkETHBalance = async () => {
+    if (!authenticated || wallets.length === 0) return;
+    
+    const embeddedWallet = wallets.find(w => w.walletClientType === 'privy');
+    if (!embeddedWallet) return;
+
+    try {
+      const provider = await embeddedWallet.getEthereumProvider();
+      
+      // Get ETH balance
+      const balance = await provider.request({
+        method: 'eth_getBalance',
+        params: [embeddedWallet.address, 'latest']
+      });
+
+      // Convert from wei to ETH (18 decimals)
+      const balanceInETH = parseInt(balance, 16) / 1e18;
+      setUserETHBalance(balanceInETH.toFixed(4));
+      console.log(`⚡ ETH Balance: ${balanceInETH.toFixed(4)} ETH`);
+    } catch (error) {
+      console.error('Failed to fetch ETH balance:', error);
+    }
+  };
+
+  // USDC balance checking
+  const checkUSDCBalance = async () => {
+    if (!authenticated || wallets.length === 0) return;
+    
+    const embeddedWallet = wallets.find(w => w.walletClientType === 'privy');
+    if (!embeddedWallet) return;
+
+    try {
+      const provider = await embeddedWallet.getEthereumProvider();
+      
+      // ERC-20 balanceOf function call
+      const balanceData = '0x70a08231' + embeddedWallet.address.slice(2).padStart(64, '0');
+      
+      const balance = await provider.request({
+        method: 'eth_call',
+        params: [{
+          to: USDC_CONTRACT_ADDRESS,
+          data: balanceData
+        }, 'latest']
+      });
+
+      // USDC has 6 decimals
+      const balanceInUSDC = parseInt(balance, 16) / 1e6;
+      setUserUSDCBalance(balanceInUSDC.toFixed(2));
+      console.log(`💰 USDC Balance: ${balanceInUSDC.toFixed(2)} USDC`);
+    } catch (error) {
+      console.error('Failed to fetch USDC balance:', error);
+    }
+  };
+
+  // check balances when wallet is connected
+  React.useEffect(() => {
+    if (authenticated && wallets.length > 0) {
+      checkETHBalance();
+      checkUSDCBalance();
+    }
+  }, [authenticated, wallets]);
+
+  // tipping functionality (USDC stablecoin - required for bounty!)
+  const sendTip = async () => {
+    if (!authenticated || wallets.length === 0) {
+      alert('Please connect your wallet to send tips!');
+      return;
+    }
+
+    const embeddedWallet = wallets.find(w => w.walletClientType === 'privy');
+    if (!embeddedWallet) {
+      alert('No embedded wallet found!');
+      return;
+    }
+
+    setIsSendingTip(true);
+    
+    try {
+      console.log(`💰 Sending tip of ${tipAmount} USDC to GreenThumb agent...`);
+      
+      // get ethereum provider from embedded wallet
+      const provider = await embeddedWallet.getEthereumProvider();
+      
+      // convert USDC amount to smallest unit (6 decimals for USDC)
+      const valueInSmallestUnit = Math.floor(parseFloat(tipAmount) * 1e6);
+      const valueHex = valueInSmallestUnit.toString(16).padStart(64, '0');
+      
+      // ERC-20 transfer function signature + recipient address + amount
+      const transferData = '0xa9059cbb' + // transfer(address,uint256)
+                          AGENT_WALLET_ADDRESS.slice(2).padStart(64, '0') + // recipient
+                          valueHex; // amount
+      
+      // send USDC transaction
+      const txHash = await provider.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: embeddedWallet.address,
+          to: USDC_CONTRACT_ADDRESS,
+          data: transferData,
+          gas: '0x15F90', // 90000 gas for ERC-20 transfer
+        }],
+      });
+
+      console.log('✅ USDC tip sent successfully! Transaction hash:', txHash);
+      
+      // add success message to chat with clickable transaction link
+      const explorerUrl = `https://sepolia-explorer.base.org/tx/${txHash}`;
+      const tipMsg: Message = {
+        id: uuidv4(),
+        text: `💚 Thank you for the $${tipAmount} USDC tip! Your support helps me grow and learn. 🌱\n\n📄 Transaction Hash: ${txHash}\n🔍 View on Block Explorer: ${explorerUrl}`,
+        sender: 'bot',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, tipMsg]);
+      
+      // close modal and refresh balances
+      setShowTipModal(false);
+      setTipAmount('1');
+      setTimeout(() => {
+        checkETHBalance(); // refresh ETH balance (used for gas)
+        checkUSDCBalance(); // refresh USDC balance (used for tip)
+      }, 2000); // refresh balances after 2 seconds
+      
+    } catch (error: any) {
+      console.error('❌ Failed to send USDC tip:', error);
+      alert(`Failed to send USDC tip: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setIsSendingTip(false);
+    }
+  };
+
+  // fund wallet with USDC for testing
+  const fundWithUSDC = async () => {
+    if (!authenticated || wallets.length === 0) {
+      alert('Please connect your wallet first!');
+      return;
+    }
+
+    const embeddedWallet = wallets.find(w => w.walletClientType === 'privy');
+    if (!embeddedWallet) {
+      alert('No embedded wallet found!');
+      return;
+    }
+
+    try {
+      await fundWallet(embeddedWallet.address, {
+        chain: { id: 84532 }, // Base Sepolia
+        amount: '10',
+        asset: 'USDC'
+      });
+      console.log('✅ Wallet funded with USDC!');
+      setTimeout(() => {
+        checkETHBalance(); // refresh ETH balance
+        checkUSDCBalance(); // refresh USDC balance
+      }, 3000); // refresh balances after 3 seconds
+    } catch (error) {
+      console.error('❌ Failed to fund wallet:', error);
+      alert('Failed to fund wallet. This feature may not be available on testnet.');
     }
   };
 
@@ -754,7 +975,7 @@ const GreenthumbApp: React.FC = () => {
                     transition: 'all 0.2s ease',
                   }}
                   title={authenticated && wallets.length > 0 ? 
-                    `${wallets[0].walletClientType} wallet: ${wallets[0].address}` : 
+                    `${wallets[0].walletClientType} wallet: ${wallets[0].address}\nETH: ${userETHBalance}\nUSDC: ${userUSDCBalance}` : 
                     undefined
                   }
                 >
@@ -767,6 +988,26 @@ const GreenthumbApp: React.FC = () => {
                     'Connect'
                   }
                 </button>
+                
+                {/* Balance display when connected */}
+                {authenticated && wallets.length > 0 && (
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '4px', 
+                    fontSize: '12px',
+                    color: '#047857',
+                    fontWeight: '500',
+                    background: 'rgba(240, 253, 244, 0.8)',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid rgba(16, 185, 129, 0.2)'
+                  }}>
+                    <span>⚡ {userETHBalance} ETH</span>
+                    <span style={{ opacity: 0.6 }}>|</span>
+                    <span>💰 ${userUSDCBalance} USDC</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -816,28 +1057,65 @@ const GreenthumbApp: React.FC = () => {
               </div>
               
               {/* Message bubble */}
-              <div
-                style={{
-                  maxWidth: '70%',
-                  padding: '12px 16px',
-                  borderRadius: message.sender === 'user' ? '18px 18px 6px 18px' : '18px 18px 18px 6px',
-                  backgroundColor: message.sender === 'user' ? '#10b981' : 'white',
-                  color: message.sender === 'user' ? 'white' : '#1f2937',
-                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-                  border: message.sender === 'bot' ? '1px solid rgba(34, 197, 94, 0.1)' : 'none',
-                }}
-              >
-                <p style={{ margin: 0, lineHeight: '1.5' }}>{message.text}</p>
-                <p 
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
+                <div
                   style={{
-                    margin: 0,
-                    marginTop: '4px',
-                    fontSize: '12px',
-                    opacity: 0.7,
+                    maxWidth: '70%',
+                    padding: '12px 16px',
+                    borderRadius: message.sender === 'user' ? '18px 18px 6px 18px' : '18px 18px 18px 6px',
+                    backgroundColor: message.sender === 'user' ? '#10b981' : 'white',
+                    color: message.sender === 'user' ? 'white' : '#1f2937',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+                    border: message.sender === 'bot' ? '1px solid rgba(34, 197, 94, 0.1)' : 'none',
                   }}
                 >
-                  {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
+                  <p style={{ margin: 0, lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                    {renderMessageText(message.text)}
+                  </p>
+                  <p 
+                    style={{
+                      margin: 0,
+                      marginTop: '4px',
+                      fontSize: '12px',
+                      opacity: 0.7,
+                    }}
+                  >
+                    {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                
+                {/* Tip button for bot messages */}
+                {message.sender === 'bot' && authenticated && wallets.length > 0 && (
+                  <button
+                    onClick={() => setShowTipModal(true)}
+                    style={{
+                      background: 'linear-gradient(135deg, #34d399, #10b981)',
+                      color: 'white',
+                      border: 'none',
+                      padding: '6px 12px',
+                      borderRadius: '12px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                      transition: 'all 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)';
+                    }}
+                  >
+                    <Heart size={12} />
+                    Tip GreenThumb
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -972,6 +1250,201 @@ const GreenthumbApp: React.FC = () => {
           </button>
         </div>
       </div>
+      
+      {/* Tip Modal */}
+      {showTipModal && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => !isSendingTip && setShowTipModal(false)}
+        >
+          <div 
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '400px',
+              width: '90%',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.15)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+              <div 
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                }}
+              >
+                <Heart size={20} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, color: '#1f2937', fontSize: '18px', fontWeight: '600' }}>
+                  Tip GreenThumb
+                </h3>
+                <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
+                  Support your AI gardening assistant
+                </p>
+              </div>
+            </div>
+            
+            {/* Balance display */}
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={{ fontSize: '14px', color: '#64748b', fontWeight: '500' }}>Your USDC Balance:</span>
+                <span style={{ fontSize: '16px', color: '#1e293b', fontWeight: '600' }}>
+                  ${userUSDCBalance} USDC
+                </span>
+              </div>
+              {parseFloat(userUSDCBalance) === 0 && (
+                <button
+                  onClick={fundWithUSDC}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: '500',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+                >
+                  💳 Get Test USDC (Privy Funding)
+                </button>
+              )}
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', color: '#374151', fontWeight: '500' }}>
+                Tip Amount (USDC)
+              </label>
+              <input
+                type="number"
+                value={tipAmount}
+                onChange={(e) => setTipAmount(e.target.value)}
+                step="0.1"
+                min="0.1"
+                disabled={isSendingTip}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '8px',
+                  fontSize: '16px',
+                  outline: 'none',
+                  transition: 'border-color 0.2s ease',
+                }}
+                onFocus={(e) => e.target.style.borderColor = '#10b981'}
+                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+              />
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                {['1', '5', '10', '25'].map(amount => (
+                  <button
+                    key={amount}
+                    onClick={() => setTipAmount(amount)}
+                    disabled={isSendingTip}
+                    style={{
+                      padding: '6px 12px',
+                      border: tipAmount === amount ? '2px solid #10b981' : '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      background: tipAmount === amount ? '#f0fdf4' : 'white',
+                      color: tipAmount === amount ? '#059669' : '#6b7280',
+                      fontSize: '12px',
+                      cursor: isSendingTip ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    ${amount} USDC
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => setShowTipModal(false)}
+                disabled={isSendingTip}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  background: 'white',
+                  color: '#6b7280',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: isSendingTip ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={sendTip}
+                disabled={isSendingTip || !tipAmount || parseFloat(tipAmount) <= 0}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  background: isSendingTip ? '#9ca3af' : 'linear-gradient(135deg, #10b981, #059669)',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: (isSendingTip || !tipAmount || parseFloat(tipAmount) <= 0) ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                }}
+              >
+                {isSendingTip ? (
+                  <>
+                    <div 
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid transparent',
+                        borderTop: '2px solid white',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite',
+                      }}
+                    />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <DollarSign size={16} />
+                    Send Tip
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
